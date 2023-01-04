@@ -8,6 +8,9 @@ from Crypto.Util.Padding import pad, unpad
 from Crypto.Random import get_random_bytes
 from Crypto.PublicKey import RSA
 from Crypto.Hash import SHA256
+from os.path import exists
+
+import client
 
 def main():
 
@@ -22,14 +25,16 @@ def main():
         exit(0)
     except FileNotFoundError:
         response = input(first_time_login_prompt)
-        if(response == "y"):
+        while (response != "y" and response != "Y"):
+            response = input(first_time_login_prompt)
+        if(response == "y" or response == "Y"):
             print("SecureDrop Registering:")
             name = pyip.inputStr("Enter Full Name: ")
             email = pyip.inputStr("Enter Email Address: ")
             password = pyip.inputPassword("Enter Password: ")
             password2 = pyip.inputPassword("Re-enter Password: ")
-
-        ########PASSWORD HASHING########
+        
+            ########PASSWORD HASHING########
             salt = os.urandom(32)
 
             key = hashlib.pbkdf2_hmac(
@@ -49,7 +54,6 @@ def main():
                 password2 = pyip.inputPassword("Re-enter Password: ")
 
             print("Passwords Match.")
-
             #convert name and email str into bytes
             name_bytes = str.encode(name + "\n")
             email_bytes = str.encode(email + "\n")
@@ -74,11 +78,15 @@ def main():
             print("Exiting Secure Drop.")
             exit(0)
 
+    try:
         login()
+    except KeyboardInterrupt:
+        exit(0)
 
   
 
 def login():
+
     print("SecureDrop Login:")
     email = pyip.inputStr("Enter Email Address: ")
     password = pyip.inputPassword("Enter Password: ")
@@ -105,28 +113,37 @@ def login():
                 # that dklen thingy for future milestones
             )
 
-            key = (lines[i+1]).strip() # get rid of the "\n" at the end
+            keya = (lines[i+1]).strip() # get rid of the "\n" at the end
             ''''
             print("new key: \n")
             print(new_key)
             print("key: \n")
             print(key)
             '''
-            if new_key == key:
-                program()
+            name = lines[0].decode("utf-8")
+            if new_key == keya:
+                client.client_logged_in(name, email) # makes client call to server to list this user as logged in
+                
+                program(name, email)
             else:
                 print("Email and Password Combination Invalid \n")
                 login()
         i+=1
     print("Email and Pasword Combination Invalid \n")
     login()
+       
 
-def add_contacts():
+
+
+
+
+def add_contacts(user_email):
     #inputs
     print("Who would you like to add?: ")
     name = pyip.inputStr("Enter Full Name: ")
     email = pyip.inputStr("Enter Email Address: ")
 
+    
     #keys that is randomly generated
     key = RSA.generate(2048) 
 
@@ -143,34 +160,150 @@ def add_contacts():
     
     priv_key = key.export_key() #creates a private key
 
-    encName = rsa.encrypt(name_bytes, key)
-    encEmail = rsa.encrypt(email_bytes, key)
-    
+    overwrite = 0
 
-    #file_key.write(newline_byte)
-    #file_key.write(encEmail)
+    lines = []
 
-    #print(encName)
-    #print("\n")
-    #print(encEmail)
+    if (exists('contacts.pem')):
+        with open('contacts.pem') as my_file:
+            for line in my_file:
+                lines.append(line)
 
-    file_out = open("contacts.pem", 'wb')
-    file_out.write(priv_key)
-    file_out.write(newline_byte)
-    file_out.write(encName)
-    file_out.write(newline_byte)
-    file_out.write(encEmail)
-    file_out.write(newline_byte)
+    stripped_lines = [line.strip() for line in lines]
+
+    i = 1
+    while i < len(stripped_lines):
+        print(type(stripped_lines[i]), "comparing with", type(email))
+        stripped_line = stripped_lines[i]
+        if stripped_line.strip() == email:
+            print("OVERWRITING DATA...")
+            stripped_lines[i - 1] = name
+            overwrite = 1
+
+            client.remove_overwritten_contact_from_server(user_email, stripped_lines[i - 1])
+
+        i += 2
+
+    if overwrite == 1:
+        file_out = open("contacts.pem", 'wb')
+        for item in stripped_lines:
+            file_out.write(str.encode(item))
+            file_out.write(newline_byte)
+
+    if overwrite == 0:
+        
+        file_out = open("contacts.pem", 'ab')
+        #file_out.write(priv_key)
+        #file_out.write(newline_byte)
+        #file_out.write(encName)
+        file_out.write(name_bytes)
+        file_out.write(newline_byte)
+        #file_out.write(encEmail)
+        file_out.write(email_bytes)
+        file_out.write(newline_byte)
+
     file_out.close() 
     
     #print(priv_key)
 
+    client.client_req_add(user_email, email)
+
     print("Contact Added")
-    program()
 
 
-def program():
-    print("Welcome to SecureDrop.")
+
+
+
+
+
+
+def list_contacts():
+    #send server a list of our contacts
+    #server replies with list of contacts that are online
+    #display contacts that are online   
+    lines = []
+    email_list = []
+
+    if (exists('contacts.pem')): # gets a list of emails of contacts 
+        with open('contacts.pem') as my_file:
+            for line in my_file:
+                lines.append(line)
+
+    stripped_lines = [line.strip() for line in lines]
+
+    i = 1
+    while i < len(stripped_lines):
+        stripped_line = stripped_lines[i]
+        email_list.append(stripped_lines[i].strip())
+        i += 2
+
+    name_email_arr = []
+    my_email = ""
+
+    if (exists('registered.txt')): # gets the email of logged in user to pass to server
+        with open('registered.txt', 'rb') as login_info:
+            for info in login_info:
+                name_email_arr.append(info)
+
+    name_email_arr = [line.strip() for line in name_email_arr]
+    my_email = (name_email_arr[1]).decode("utf-8")
+
+    online_list = client.client_req_list(my_email, email_list) # use these two info to make client call to server
+                                                                # to list out online contacts
+    i = 0
+    print("The following contacts are online: ")
+    #print(online_list)
+    online_list_arr = online_list.split(",")
+    while i < len(online_list_arr) and i != (len(online_list_arr) - 1):
+        name_email = online_list_arr[i].split('_')
+        print("* ", name_email)
+        #print(name_email[0], " ", name_email[1])
+        i+=1
+    
+
+
+
+
+
+def send_file(result):
+    arr_result = result.split()
+    try:
+        recipient_email = arr_result[1]
+    except:
+        print("No recipient specified.")
+        return
+    try:
+        filename = arr_result[2]
+    except:
+        print("No filename specified.")
+        return
+
+    
+    try:
+        # Check the file exists
+        content = open(filename, "rb")
+    except:
+        print ("Couldn't open file. Make sure the file name was entered correctly.")
+        return
+
+    print("Transmitting {} ...".format(filename))
+
+    client.client_req_send(recipient_email, filename)
+    
+
+
+def download_file(my_email):
+
+    client.client_req_download(my_email)
+
+
+
+
+
+
+
+
+def program(name, email):
     prompt = "secure_drop$: "
     while True:
         try:
@@ -180,18 +313,34 @@ def program():
                 print("'-h' or 'help' for help")
                 print("'add' -> Add a new contact")
                 print("'list' -> List all online contacts")
-                print("'send' -> Transfer file to contact")
+                print("'send' -> Transfer file to server")
+                print("'download' -> Download file from server")
                 print("'exit' -> Exit SecureDrop")
                 print("End of help.")
             elif (result == "add"): # add contacts have been selected
-                add_contacts()
+                add_contacts(email)
+            elif (result == "list"): # add contacts have been selected
+                #print("Entering List_Contacts Function")
+                list_contacts()
+            elif (result[:4] == "send"):
+                send_file(result)
+            elif (result == "download"):
+                download_file(email)
             elif (result == "exit"):
+                client.client_logged_out(name, email) # makes client call to server to list this user as logged out
                 sys.exit(0)
         except KeyboardInterrupt:
+            client.client_logged_out(name, email) # makes client call to server to list this user as logged out
             sys.exit(0)
         except Exception:
+            #client.client_logged_out(email)
             traceback.print_exc(file=sys.stdout)
             sys.exit(0)
+        #except SystemExit:
+            #client.client_logged_out(email)
+        #finally:
+            #client.client_logged_out(email)
+
 
 
 if __name__ == "__main__":

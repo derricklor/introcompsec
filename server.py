@@ -3,6 +3,7 @@
 import socket
 import sys
 import json
+import os
 
 online_clients = [] #global list
 # online_clients = [ ("email", "name", port#),
@@ -10,15 +11,8 @@ online_clients = [] #global list
 
 #server side database of client's contact list
 
-# read file
-# with open('client_contacts.json', 'r') as myfile:
-#   data=myfile.read()
-
-# # parse file
-# client_contacts = json.loads(data)
-
-# print(client_contacts)
-
+#client_contacts = [ ("client_email", [ "contact_email", "contact_email"]),
+#                    ("client_email", [ "contact_email", "contact_email"]) ]
 try:
     fin = open("client_contacts.json","r")
     client_contacts = json.load(fin)
@@ -27,27 +21,38 @@ except:
 
     fout = open("client_contacts.json", "w")
 
-    print("Empty new client_contacts.json created.\n")
+    print("Empty new client_contacts.json created.")
 
-    client_contacts = [("hi","bye"), ("hiagain","byeagain")]
-    #client_contacts = []
-    print("client contacts:")
-    print(client_contacts)
-
+    #client_contacts = [("hi","bye"), ("hiagain","byeagain")]
+    client_contacts = []
+    
     json_string = json.dumps(client_contacts)
-
-    print("json string: ")
-    print(json_string)
 
     fout.write(json_string)
     fout.close
 
 
-print(client_contacts)
+#server side database of available download list
+#available_downloads = ["filename", "filename"]
+try:
+    fin = open("available_downloads.json","r")
+    available_downloads = json.load(fin)
+except:
+    print("No available_downloads.json found.\n")
+
+    fout = open("available_downloads.json", "w")
+
+    print("Empty new available_downloads.json created.")
+
+    #available_downloads = ["filename", "filename"]
+    available_downloads = []
+    
+    json_string = json.dumps(available_downloads)
+
+    fout.write(json_string)
+    fout.close
 
 
-#use client_contacts = [ ("client_email", [ "contact_email", "contact_email"]),
-#                        ("client_email", [ "contact_email", "contact_email"]) ]
 
 s = socket.socket(socket.AF_INET,socket.SOCK_STREAM) 
 host = "localhost"  # localhost
@@ -70,11 +75,6 @@ def list_out_contacts(email_list):
         online_list.append(tuple) # add name & email of online contact, from tuple
   return online_list
 
-#intersection() used for cross checking mutual contacts
-def intersection(lst1, lst2):  
-    lst3 = [value for value in lst1 if value in lst2]
-    return lst3
-
 
 
 
@@ -94,20 +94,20 @@ while True:
   
   sender = message_arr[0]
   request = message_arr[1]
-
+  print("sender:")
+  print(sender)
+  print("request:")
+  print(request)
   print("MESSAGE DECODED", message_decoded)  
 
   print("online_clients:", online_clients)
-    ##@@@@!!!!!!@@@@@@####@@@!!!!@@### UPDATES PORT AFTER EVERY CLIENT CALL, BIG SECURITY HOURS ###@@!!!!!@####
+  ##@@@@!!!!!!@@@@@@####@@@!!!!@@### UPDATES PORT AFTER EVERY CLIENT CALL, BIG SECURITY HOURS ###@@!!!!!@####
   for tuple in online_clients: # update the port number of corresponding client
     if sender == tuple[0]:     # so the server knows the port # to send to according to whatever email 
       new_tuple = (tuple[0], tuple[1],  addr[1]) #("email", "name", port#)
       online_clients.remove(tuple)
       online_clients.append(new_tuple)
-      #print("old port #: ", tuple[2])              @@@@@@@need this later
-  #print("list client call, new port #: ", addr[1]) @@@@@@@need this later
 
-  #client.send()
   
   #client sends email to server, and appends to online clients
   if request == "login":
@@ -116,8 +116,8 @@ while True:
     client_name = message_arr[2].split('_')
     client_tuple = (client_email, client_name[0], addr[1])
     online_clients.append(client_tuple)
-    print(online_clients)
-    client.send(bytes(str(addr[1]), "utf-8"))
+    #print(online_clients)
+    client.send(bytes("1", "utf-8"))
 
 
 
@@ -141,6 +141,44 @@ while True:
 
 
 
+
+
+  if request == "add":
+    newContactEmail= message_arr[2]
+    foundFlag = 0 
+    #check if sender email already exists in client_contacts
+    #if so, append newContactEmail to sender
+    for tuple in client_contacts:
+      if tuple[0] == sender:
+        foundFlag = 1
+        tuple[1].append(newContactEmail) # new email arg
+
+    if foundFlag == 0:  #then sender was not found in client_contacts
+      #add sender in client_contacts
+      tuple = (sender,[newContactEmail])
+      client_contacts.append(tuple)
+
+
+    #receive message in format of: <my_email> add <email of new contact> 
+    #check if request is add
+    #append email of new contact to client_contacts[my_email] 
+
+    #save the client_contacts to json and write to file
+    fout = open("client_contacts.json", "w")
+    json_string = json.dumps(client_contacts)
+    fout.write(json_string)
+    fout.close
+
+    reply_string = "Contact added to server"
+    print(reply_string)
+    client.send(bytes(reply_string, "utf-8"))
+
+
+
+
+
+
+
   if request == "list":  ###################### one thing left, cross check to see both clients have each other added
     email_list = [] #at every index greater than 0 and 1, add to list
     i = 2           #ignore indexes 0,1 of message_arr because those are email and name
@@ -148,18 +186,29 @@ while True:
       email_list.append(message_arr[i]) #appends client list of emails
       i+=1
 
-    print("CHECKPOINT2")
     online_list = list_out_contacts(email_list)
+    # online_list = [ ("name", "email"),("name", "email")]
 
     #use client_contacts = [("client_email", [ "contact_email", "contact_email"]),
     #                       ("client_email", [ "contact_email", "contact_email"])]
 
+    ###########mutual contacts###############
+    # for each person in online_list
+    # check if they have me, sender, in their contact list
 
+    mutual_list = []
+
+    for ele in online_list:
+        email = ele[1]
+        for tuple in client_contacts:
+             if tuple[0] == email:
+                 for y in tuple[1]:
+                     if y == sender:
+                         tup = ele
+                         mutual_list.append(tup)
 
     reply_string = ""
-    for e in online_list:
-      #print("e[0]: ", e[0])
-      #print("e[1]: ", e[1])
+    for e in mutual_list:
       full_name = ""
       for name in e[0]:
         full_name += name + " "
@@ -194,41 +243,89 @@ while True:
                         #if recipient is online
                         #send request to recipient to accept or decline send
     client.send(bytes("Ready for File", "utf-8")) 
+
+    #receive recipient name, filename, filesize
     file_contents_decoded = client.recv(1024).decode("utf-8")
-    #check if client b
-    #FIB server asks client B if they want the file, socket name = recipient_client
-    #online clients 
+    send_details = file_contents_decoded.split()
+
+    recipient_email = send_details[0]
+    filename = send_details[1]
+    #add to list of available files to download
+    tuple = (recipient_email, filename)
+    available_downloads.append(tuple)
+
+    #save the available_downloads to json and write to file
+    fout = open("available_downloads.json", "w")
+    json_string = json.dumps(available_downloads)
+    fout.write(json_string)
+    fout.close
+
+    filesize = int(send_details[2])
+
+    output_file = open(filename, "w")
+    bytes_received = 0
+
+    while bytes_received < filesize:
+        data = client.recv(1024).decode("utf-8")
+        output_file.write(data)
+        bytes_received += 1024
+    output_file.close()
+
+    reply_string = "Done"
+    client.send(bytes(reply_string, "utf-8"))
 
 
-    ##### CREATE NEW SOCKET FOR CLIENT B #####
-    #recip_port = get port from online_clients matching recipient email
-    #create new socket and bind with ipaddr =localhost and port = recip_port
+
+
+########### download ###########
+
+  if request == "download":
+
     
-    client.send(bytes("Accept file?"))
-    #not sure if i need this
-    acceptance = client.recv(1024).decode("utf-8")
+    message = ""
+    for tuple in available_downloads:
+      if tuple[0] == sender:
+        message += tuple[1] + " "
 
-    if acceptance == "yes" or acceptance == "Y" or acceptance == "y":
-      client.send(file_contents_decoded)
+    if message == "": #no available files to download
+      message = " "   #cant send string of size 0 through socket
     
-    if acceptance == "no" or acceptance == "N" or acceptance == "n":
-      break
+    #send list of file names to client
+    client.send(bytes(message, "utf-8")) 
+
+    if message != " ":  #if no available files skip code below
+      #receive file name to download
+      filename = client.recv(1024).decode("utf-8")
+
+      print("filename received:")
+      print(filename)
+      # send_request = filename bytes
+      send_request = filename + " "
+      sizeinbytes = os.path.getsize(filename)
+      send_request += str(sizeinbytes)
+
+      print(send_request)
+
+      client.send(bytes(send_request, "utf-8"))
+
       
-      '''
-    recipient_email = 
-    email = message_arr[0]
-    if (recipient_email == email)
-    if ()'''
+      #converts and sends file as string to client
+      server_file = open(filename, "rb")
+      client_file_data = server_file.read(1024)
 
-    # for tuple in online_clients: # update the port number of corresponding client
-    #   if sender == tuple[0]:
-    #     new_tuple = (tuple[0], tuple[1],  addr[1])
-    #     online_clients.remove(tuple)
-    #     online_clients.append(new_tuple)
+      sentbytes = 0
+      while sentbytes < sizeinbytes:
+          client.send(client_file_data)
+          client_file_data = server_file.read(1024)
+          sentbytes += 1024
+      
+      server_file.close()
+
+      message = client.recv(1024).decode("utf-8")
+      print(message)
+
+
+
 
   print("The sender is : ", sender)
-  #client.send(bytes(reply_msg, "utf-8"))
-  #client.close()
-
-
   print("client replied, socket closed")
